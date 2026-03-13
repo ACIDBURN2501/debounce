@@ -96,6 +96,23 @@ void operator_acknowledge(void)
 }
 ```
 
+## Output model
+
+The debouncer maintains two independent outputs:
+
+- **`output` (level-triggered):** Tracks the debounced input directly. Goes `true` once
+  `trip` consecutive ticks are seen; resets to `false` immediately when the input clears.
+  Read via `debounce_update()` or `debounce_is_active()`. No acknowledgement required.
+  Suitable for continuously reflecting the clean state of a digital input or voltage
+  threshold.
+
+- **`latch` (fault-hold):** Sticky flag set the moment `output` first goes `true`; not
+  cleared when the condition clears. Requires an explicit `debounce_clear_latch()` to
+  reset. Suitable for fault-hold and operator-acknowledgement patterns.
+
+These are independent. Use `output` alone for level detection without ever touching
+`latch`.
+
 ## API Reference
 
 ### Struct
@@ -110,59 +127,76 @@ struct debounce {
 };
 ```
 
-Do not access struct fields directly. Use the API functions below to preserve invariants.
-
----
+Do not access fields directly; use the API functions to preserve invariants.
 
 ### Lifecycle
 
-| Function | Description |
-|---|---|
-| `debounce_init(db, trip)` | Initialise the object. Returns `true` on success. Returns `false` (without modifying the object) if `db` is NULL or `trip` is zero. On success: sets `trip`, zeroes all other fields, sets `enabled = true`. |
-| `debounce_reset(db)` | Reset `counter`, `output`, and `latch` to zero. Preserves `trip` and `enabled`. |
+```c
+bool debounce_init(struct debounce *db, uint16_t trip);
+```
 
----
+Initialise `db` with the given trip threshold. Returns `true` on success; returns `false`
+without modifying the object if `db` is `NULL` or `trip` is zero. On success: sets
+`trip`, zeroes `counter`, `output`, and `latch`, and sets `enabled = true`.
+
+```c
+void debounce_reset(struct debounce *db);
+```
+
+Reset `counter`, `output`, and `latch` to zero. Preserves `trip` and `enabled`.
 
 ### Core processing
 
-| Function | Description |
-|---|---|
-| `debounce_update(db, cond)` | Process one tick. Returns the current debounced output. When `cond` clears, `counter` and `output` reset immediately; the sticky `latch` is not cleared. When not enabled, this is a no-op returning `false`. |
+```c
+bool debounce_update(struct debounce *db, bool cond);
+```
 
----
+Process one tick of the monitored condition. Returns the current debounced output. When
+`cond` is true for `trip` consecutive ticks, `output` and `latch` are both set to `true`.
+When `cond` clears, `counter` and `output` reset immediately; the sticky `latch` is not
+cleared. When not enabled, this is a no-op returning `false`.
 
 ### State queries
 
-| Function | Returns | Description |
-|---|---|---|
-| `debounce_is_active(db)` | `bool` | Current debounced output. Non-destructive; does not process a tick. |
-| `debounce_is_latched(db)` | `bool` | Sticky latch state. True once output has been asserted; remains true until `debounce_clear_latch()` or `debounce_reset()`. |
-| `debounce_get_counter(db)` | `uint16_t` | Current consecutive-assertion tick count. |
-| `debounce_get_trip(db)` | `uint16_t` | Configured trip threshold. |
-| `debounce_is_enabled(db)` | `bool` | Whether the processing gate is open. |
+```c
+bool     debounce_is_active (const struct debounce *db);
+bool     debounce_is_latched(const struct debounce *db);
+uint16_t debounce_get_counter(const struct debounce *db);
+uint16_t debounce_get_trip   (const struct debounce *db);
+bool     debounce_is_enabled (const struct debounce *db);
+```
 
----
+`is_active()` returns the current debounced output without processing a tick.
+`is_latched()` returns the sticky latch state; `true` once output has been asserted,
+remains `true` until `debounce_clear_latch()` or `debounce_reset()`. `get_counter()` and
+`get_trip()` return the current tick count and configured threshold respectively.
+`is_enabled()` returns whether the processing gate is open.
 
 ### Sticky latch
 
-| Function | Description |
-|---|---|
-| `debounce_clear_latch(db)` | Clear the sticky latch. If the debounced output is currently active, the latch will be re-set on the next `debounce_update()` call. |
+```c
+void debounce_clear_latch(struct debounce *db);
+```
 
----
+Clear the sticky latch. If the debounced output is currently active, the latch will be
+re-set on the next `debounce_update()` call; ensure the monitored condition has cleared
+before calling this.
 
 ### Enable / disable gate
 
-| Function | Description |
-|---|---|
-| `debounce_enable(db)` | Open the processing gate. No other state is modified. |
-| `debounce_disable(db)` | Close the processing gate and clear `counter` and `output`. The sticky `latch` is preserved so a fault record is not silently discarded. |
+```c
+void debounce_enable (struct debounce *db);
+void debounce_disable(struct debounce *db);
+```
 
----
+`enable()` opens the processing gate without modifying any other state. `disable()` closes
+the gate and clears `counter` and `output`; the sticky `latch` is intentionally preserved
+so a fault record is not silently discarded by a disable/enable cycle.
 
 ### Defensive behaviour
 
-All functions accept a `NULL` `db` pointer and return a safe default (`false` or `0`) without crashing. `debounce_update()` also returns `false` safely when `trip == 0`.
+All functions accept a `NULL` `db` pointer and return a safe default (`false` or `0`)
+without crashing. `debounce_update()` also returns `false` safely when `trip == 0`.
 
 ## Use Cases
 
