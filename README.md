@@ -1,5 +1,7 @@
 # debounce
 
+[![CI](https://github.com/ACIDBURN2501/debounce/actions/workflows/ci.yml/badge.svg)](https://github.com/ACIDBURN2501/debounce/actions/workflows/ci.yml)
+
 Generic saturating counter debounce primitive.
 
 ## Features
