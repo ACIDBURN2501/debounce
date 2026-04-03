@@ -8,6 +8,10 @@ Generic saturating counter debounce primitive.
 
 - **Saturating counter** : Consecutive-assertion tick count that saturates at the configured threshold and never overflows.
 - **Dual output model** : A non-sticky `output` that tracks the debounced input, and a separate sticky `latch` that holds until explicitly cleared, suited to fault-hold and operator-acknowledgement patterns.
+- **Symmetric (two-sided) debounce** : Optionally debounce both assertion and de-assertion edges with independent thresholds via `debounce_init_symmetric()`. When `fall_trip` is zero (the default), de-assertion is immediate (one-sided debounce).
+- **Edge detection** : `debounce_rose()` and `debounce_fell()` detect rising and falling transitions, returning `true` for exactly one tick after the output changes.
+- **Runtime trip reconfiguration** : `debounce_set_trip()` and `debounce_set_fall_trip()` allow thresholds to be changed at runtime without a full re-init.
+- **Transition callbacks** : Optional compile-time feature (`DEBOUNCE_ENABLE_CALLBACKS=1`) for registering a callback invoked on rising and falling edges.
 - **Explicit initialisation** : `debounce_init()` validates the trip threshold and brings the object to a defined, clean state; returns `false` on invalid configuration so callers can detect misconfiguration at startup.
 - **Enable/disable gate** : `debounce_enable()` and `debounce_disable()` inhibit processing during known transient conditions (e.g. system startup) without discarding the sticky fault record.
 - **Allocation-free** : All state is held in a caller-owned `struct debounce`; no dynamic memory, no global state.
@@ -121,11 +125,17 @@ These are independent. Use `output` alone for level detection without ever touch
 
 ```c
 struct debounce {
-    uint16_t trip;    /* Configured assertion threshold; set by debounce_init() */
-    uint16_t counter; /* Consecutive-assertion tick count in [0, trip]          */
-    bool     output;  /* Current debounced output                                */
-    bool     latch;   /* Sticky latch; cleared by debounce_clear_latch()         */
-    bool     enabled; /* Processing gate; controlled by enable/disable           */
+    uint16_t trip;         /* Configured assertion threshold                      */
+    uint16_t counter;      /* Consecutive-assertion tick count in [0, trip]        */
+    uint16_t fall_trip;    /* De-assertion threshold; 0 = immediate (default)      */
+    uint16_t fall_counter; /* Consecutive de-asserted tick count in [0, fall_trip] */
+    bool     output;       /* Current debounced output                             */
+    bool     latch;        /* Sticky latch; cleared by debounce_clear_latch()      */
+    bool     enabled;      /* Processing gate; controlled by enable/disable        */
+    bool     prev_output;  /* Previous output for edge detection                   */
+#if DEBOUNCE_ENABLE_CALLBACKS
+    debounce_callback_t callback; /* Optional transition callback                  */
+#endif
 };
 ```
 
@@ -137,15 +147,27 @@ Do not access fields directly; use the API functions to preserve invariants.
 bool debounce_init(struct debounce *db, uint16_t trip);
 ```
 
-Initialise `db` with the given trip threshold. Returns `true` on success; returns `false`
-without modifying the object if `db` is `NULL` or `trip` is zero. On success: sets
-`trip`, zeroes `counter`, `output`, and `latch`, and sets `enabled = true`.
+Initialise `db` with the given trip threshold (one-sided debounce: assertion is debounced,
+de-assertion is immediate). Returns `true` on success; returns `false` without modifying
+the object if `db` is `NULL` or `trip` is zero. On success: sets `trip`, zeroes all
+counters, `output`, `latch`, and `prev_output`, and sets `enabled = true`,
+`fall_trip = 0`.
+
+```c
+bool debounce_init_symmetric(struct debounce *db, uint16_t rise_trip,
+                             uint16_t fall_trip);
+```
+
+Initialise `db` with separate rise and fall thresholds (two-sided debounce). `rise_trip`
+must be greater than zero. `fall_trip` of zero means immediate de-assertion (equivalent
+to `debounce_init`). Returns `false` if `db` is `NULL` or `rise_trip` is zero.
 
 ```c
 void debounce_reset(struct debounce *db);
 ```
 
-Reset `counter`, `output`, and `latch` to zero. Preserves `trip` and `enabled`.
+Reset `counter`, `fall_counter`, `output`, `latch`, and `prev_output` to zero/false.
+Preserves `trip`, `fall_trip`, `enabled`, and `callback` (if enabled).
 
 ### Core processing
 
@@ -155,14 +177,20 @@ bool debounce_update(struct debounce *db, bool cond);
 
 Process one tick of the monitored condition. Returns the current debounced output. When
 `cond` is true for `trip` consecutive ticks, `output` and `latch` are both set to `true`.
-When `cond` clears, `counter` and `output` reset immediately; the sticky `latch` is not
-cleared. When not enabled, this is a no-op returning `false`.
+When `cond` clears:
+- **One-sided** (`fall_trip == 0`): `counter` and `output` reset immediately.
+- **Symmetric** (`fall_trip > 0`): `counter` resets but `output` is held until
+  `fall_trip` consecutive de-asserted ticks are seen.
+
+The sticky `latch` is never cleared by this function. When not enabled, this is a no-op
+returning `false`. If `DEBOUNCE_ENABLE_CALLBACKS` is set and a callback is registered, it
+is invoked on rising and falling edges within this call.
 
 ### State queries
 
 ```c
-bool     debounce_is_active (const struct debounce *db);
-bool     debounce_is_latched(const struct debounce *db);
+bool     debounce_is_active  (const struct debounce *db);
+bool     debounce_is_latched (const struct debounce *db);
 uint16_t debounce_get_counter(const struct debounce *db);
 uint16_t debounce_get_trip   (const struct debounce *db);
 bool     debounce_is_enabled (const struct debounce *db);
@@ -173,6 +201,42 @@ bool     debounce_is_enabled (const struct debounce *db);
 remains `true` until `debounce_clear_latch()` or `debounce_reset()`. `get_counter()` and
 `get_trip()` return the current tick count and configured threshold respectively.
 `is_enabled()` returns whether the processing gate is open.
+
+### Edge detection
+
+```c
+bool debounce_rose(const struct debounce *db);
+bool debounce_fell(const struct debounce *db);
+```
+
+`rose()` returns `true` for exactly one tick after the debounced output transitions from
+false to true. `fell()` returns `true` for exactly one tick after the output transitions
+from true to false. With symmetric debounce, `fell()` fires when the output actually
+clears (after `fall_trip` de-asserted ticks), not on the first false input. Both return
+`false` if `db` is `NULL`. No spurious edges are generated after `debounce_reset()` or a
+`debounce_disable()` / `debounce_enable()` cycle.
+
+### Runtime trip reconfiguration
+
+```c
+bool debounce_set_trip(struct debounce *db, uint16_t trip);
+```
+
+Change the assertion trip threshold at runtime. Returns `false` if `db` is `NULL` or
+`trip` is zero. On success: sets `db->trip`, resets `counter` and `output` to
+zero/false. The sticky `latch`, `enabled`, `fall_trip`, and `fall_counter` are
+unchanged. The counter is reset because the old value may violate the `counter <= trip`
+invariant under the new threshold.
+
+```c
+bool     debounce_set_fall_trip(struct debounce *db, uint16_t fall_trip);
+uint16_t debounce_get_fall_trip(const struct debounce *db);
+```
+
+`set_fall_trip()` changes the de-assertion threshold at runtime. `fall_trip` of zero
+switches to immediate de-assertion. Resets `fall_counter` to zero. Returns `false` only
+if `db` is `NULL`. `get_fall_trip()` returns the current fall threshold; `0` if `db` is
+`NULL`.
 
 ### Sticky latch
 
@@ -192,8 +256,31 @@ void debounce_disable(struct debounce *db);
 ```
 
 `enable()` opens the processing gate without modifying any other state. `disable()` closes
-the gate and clears `counter` and `output`; the sticky `latch` is intentionally preserved
-so a fault record is not silently discarded by a disable/enable cycle.
+the gate and clears `counter`, `fall_counter`, `output`, and `prev_output`; the sticky
+`latch` is intentionally preserved so a fault record is not silently discarded by a
+disable/enable cycle.
+
+### Transition callbacks (optional)
+
+```c
+/* Requires DEBOUNCE_ENABLE_CALLBACKS=1 in debounce_conf.h or via compiler flag */
+typedef void (*debounce_callback_t)(struct debounce *db, bool rose);
+void debounce_set_callback(struct debounce *db, debounce_callback_t cb);
+```
+
+Register a callback invoked from `debounce_update()` on rising (`rose == true`) and
+falling (`rose == false`) edges. Pass `NULL` to disable. The callback is configuration,
+not transient state: it is preserved across `debounce_reset()` and `debounce_disable()`.
+Only available when `DEBOUNCE_ENABLE_CALLBACKS` is defined to `1`.
+
+### Compile-time configuration
+
+The file `debounce_conf.h` (included automatically by `debounce.h`) provides compile-time
+options. Override values before inclusion or via compiler flags:
+
+| Macro | Default | Description |
+|-------|---------|-------------|
+| `DEBOUNCE_ENABLE_CALLBACKS` | `0` | Set to `1` to enable the transition-callback mechanism. Adds a function-pointer field to `struct debounce` and callback dispatch code in `debounce_update()`. |
 
 ### Defensive behaviour
 
@@ -214,7 +301,11 @@ without crashing. `debounce_update()` also returns `false` safely when `trip == 
 | Topic | Note |
 |-------|------|
 | Trip value | A `trip` of `0` is invalid. All API functions handle it safely and return `false` or `0`, but the debouncer will never activate. Always call `debounce_init()` with a non-zero trip value. |
+| Symmetric debounce | `fall_trip` defaults to `0` (immediate de-assertion). Use `debounce_init_symmetric()` or `debounce_set_fall_trip()` for two-sided debounce. A `fall_trip` of `0` is valid and means one-sided behaviour. |
+| `debounce_set_trip` | Changing the trip threshold resets `counter` and `output` to preserve the `counter <= trip` invariant. The sticky `latch` is preserved. |
+| Edge detection | `debounce_rose()` and `debounce_fell()` are pure queries on `prev_output` captured at the start of each `debounce_update()`. They return `false` if no update has been called, and no spurious edges are generated after `reset` or `disable`/`enable`. |
+| Callbacks | Transition callbacks require `DEBOUNCE_ENABLE_CALLBACKS=1` at compile time. When disabled (default), no function pointer is stored and no dispatch code is compiled. The callback is preserved across `debounce_reset()` and `debounce_disable()`. |
 | Sticky latch and disable | `debounce_disable()` intentionally preserves the sticky latch. This prevents a disable/enable cycle from silently discarding a fault record. Call `debounce_clear_latch()` explicitly when acknowledgement is appropriate. |
-| Re-arm after disable | `debounce_disable()` clears `counter` and `output`, so calling `debounce_enable()` afterwards gives a clean starting state without requiring a separate `debounce_reset()`. |
+| Re-arm after disable | `debounce_disable()` clears `counter`, `fall_counter`, `output`, and `prev_output`, so calling `debounce_enable()` afterwards gives a clean starting state without requiring a separate `debounce_reset()`. |
 | MISRA deviations | Rule 15.5 (advisory): each function has a single point of exit via a `result` variable. This is the only documented deviation. |
 | Thread safety | The library provides no synchronisation. If a `struct debounce` is shared across contexts (e.g. ISR and task), the caller is responsible for appropriate access protection. |

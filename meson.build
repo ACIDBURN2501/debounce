@@ -1,7 +1,7 @@
 project(
   'debounce',
   'c',
-  version: '0.1.0',
+  version: '1.1.0',
   default_options: [
     'c_std=c11',
     'warning_level=3',
@@ -40,7 +40,11 @@ debounce_dep = declare_dependency(
 
 meson.override_dependency('debounce', debounce_dep)
 
-install_headers('include/debounce.h', subdir: 'debounce')
+install_headers(
+  'include/debounce.h',
+  'include/debounce_conf.h',
+  subdir: 'debounce',
+)
 
 pkg = import('pkgconfig')
 pkg.generate(
