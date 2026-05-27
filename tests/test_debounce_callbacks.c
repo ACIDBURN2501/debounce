@@ -140,6 +140,12 @@ TEST_CASE(test_callback_set_and_clear)
         TEST_ASSERT(g_rise_count == 1); /* no further callbacks */
 }
 
+/* set_callback on NULL db must not crash */
+TEST_CASE(test_set_callback_null_db)
+{
+        debounce_set_callback(NULL, test_callback); /* Must not crash */
+}
+
 /* Callback survives reset */
 TEST_CASE(test_callback_survives_reset)
 {
@@ -216,6 +222,7 @@ main(void)
                  "test_callback_not_fired_while_steady");
         run_test(test_callback_null_is_safe, "test_callback_null_is_safe");
         run_test(test_callback_set_and_clear, "test_callback_set_and_clear");
+        run_test(test_set_callback_null_db, "test_set_callback_null_db");
         run_test(test_callback_survives_reset, "test_callback_survives_reset");
         run_test(test_callback_with_symmetric_debounce,
                  "test_callback_with_symmetric_debounce");

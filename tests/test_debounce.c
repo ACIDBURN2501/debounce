@@ -288,6 +288,12 @@ TEST_CASE(test_clear_latch_null_db)
         debounce_clear_latch(NULL); /* Must not crash */
 }
 
+/* is_latched on NULL db returns false without crashing */
+TEST_CASE(test_is_latched_null_db)
+{
+        TEST_ASSERT(debounce_is_latched(NULL) == false);
+}
+
 /* ================== debounce_reset ======================================= */
 
 /* Reset clears counter, output, latch; preserves trip and enabled */
@@ -352,6 +358,13 @@ TEST_CASE(test_disable_clears_gate_and_transient_state_preserves_latch)
         TEST_ASSERT(db.counter == 0u);
         TEST_ASSERT(db.output == false);
         TEST_ASSERT(db.latch == true); /* sticky: preserved across disable */
+}
+
+/* enable/disable on NULL db must not crash */
+TEST_CASE(test_enable_disable_null_db)
+{
+        debounce_enable(NULL);  /* Must not crash */
+        debounce_disable(NULL); /* Must not crash */
 }
 
 /* is_enabled correctly reflects the enabled field; NULL returns false */
@@ -962,6 +975,28 @@ TEST_CASE(test_symmetric_output_not_asserted_fall_noop)
         TEST_ASSERT(db.output == false);
 }
 
+/*
+ * Defensive: if fall_counter is somehow already at/above fall_trip while the
+ * output is still asserted (e.g. corrupted state), the next de-asserted tick
+ * must still clear the output rather than increment past the threshold. This
+ * exercises the saturating `fall_counter < fall_trip` guard's false branch.
+ */
+TEST_CASE(test_symmetric_fall_counter_overshoot_deasserts)
+{
+        struct debounce db;
+        debounce_init_symmetric(&db, 1u, 3u);
+
+        debounce_update(&db, true); /* output asserts */
+        TEST_ASSERT(db.output == true);
+
+        db.fall_counter = 9u; /* corrupt: already past fall_trip (3) */
+
+        bool result = debounce_update(&db, false);
+        TEST_ASSERT(result == false);
+        TEST_ASSERT(db.output == false);   /* de-asserted, not stuck */
+        TEST_ASSERT(db.fall_counter == 0u); /* reset on de-assert */
+}
+
 /* legacy debounce_init sets fall_trip=0 and fall_counter=0 */
 TEST_CASE(test_legacy_init_sets_fall_trip_zero)
 {
@@ -1181,6 +1216,7 @@ main(void)
         run_test(test_latch_resets_after_clear_then_reasserts,
                  "test_latch_resets_after_clear_then_reasserts");
         run_test(test_clear_latch_null_db, "test_clear_latch_null_db");
+        run_test(test_is_latched_null_db, "test_is_latched_null_db");
 
         run_test(test_reset_clears_debounce_state_preserves_config,
                  "test_reset_clears_debounce_state_preserves_config");
@@ -1191,6 +1227,7 @@ main(void)
         run_test(
             test_disable_clears_gate_and_transient_state_preserves_latch,
             "test_disable_clears_gate_and_transient_state_preserves_latch");
+        run_test(test_enable_disable_null_db, "test_enable_disable_null_db");
         run_test(test_is_enabled_reflects_state,
                  "test_is_enabled_reflects_state");
         run_test(test_disable_then_enable_gives_clean_state,
@@ -1259,6 +1296,8 @@ main(void)
                  "test_get_fall_trip_returns_value");
         run_test(test_symmetric_output_not_asserted_fall_noop,
                  "test_symmetric_output_not_asserted_fall_noop");
+        run_test(test_symmetric_fall_counter_overshoot_deasserts,
+                 "test_symmetric_fall_counter_overshoot_deasserts");
         run_test(test_legacy_init_sets_fall_trip_zero,
                  "test_legacy_init_sets_fall_trip_zero");
         run_test(test_symmetric_trip_one_fall_one,
