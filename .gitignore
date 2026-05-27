@@ -47,3 +47,4 @@
 
 # Meson build output
 build/
+build*/

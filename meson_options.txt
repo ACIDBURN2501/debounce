@@ -1,6 +1,28 @@
 option(
   'build_tests',
   type: 'boolean',
-  value: true,
+  value: false,
   description: 'Build and run unit tests',
+)
+
+option(
+  'atomicity_mode',
+  type: 'combo',
+  choices: ['c11', 'volatile'],
+  value: 'c11',
+  description: 'Atomicity model: c11 (hosted/multi-core) or volatile (single-core MCU)',
+)
+
+option(
+  'enable_callbacks',
+  type: 'boolean',
+  value: false,
+  description: 'Enable transition callbacks',
+)
+
+option(
+  'tsan',
+  type: 'boolean',
+  value: false,
+  description: 'Build the concurrency test under ThreadSanitizer (requires libtsan)',
 )

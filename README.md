@@ -16,7 +16,7 @@ Generic saturating counter debounce primitive.
 - **Enable/disable gate** : `debounce_enable()` and `debounce_disable()` inhibit processing during known transient conditions (e.g. system startup) without discarding the sticky fault record.
 - **Allocation-free** : All state is held in a caller-owned `struct debounce`; no dynamic memory, no global state.
 - **Deterministic execution** : No recursion, no data-dependent loop bounds, no blocking calls making it safe for use in ISRs and hard real-time control loops.
-- **MISRA C 2012 aware** : Single exit points per function, increment separated from comparison, documented advisory deviations making it suitable for IEC-61508 environments.
+- **MISRA C 2023 aware** : Single exit points per function, increment separated from comparison, and the single advisory deviation (Rule 15.5) documented inline — written with safety-conscious, IEC-61508-style environments in mind (not formally certified).
 - **Header-only implementation** : All functions are `static inline`; no separate link step required.
 
 ## Using the Library
@@ -281,6 +281,11 @@ options. Override values before inclusion or via compiler flags:
 | Macro | Default | Description |
 |-------|---------|-------------|
 | `DEBOUNCE_ENABLE_CALLBACKS` | `0` | Set to `1` to enable the transition-callback mechanism. Adds a function-pointer field to `struct debounce` and callback dispatch code in `debounce_update()`. |
+| `DEBOUNCE_USE_C11_ATOMIC` | (default) | Select the C11 atomicity model: `struct debounce` fields are `_Atomic`. Requires `<stdatomic.h>`. |
+| `DEBOUNCE_USE_VOLATILE_ATOMIC` | — | Select the `volatile` model. For single-core MCUs whose toolchain lacks `<stdatomic.h>` (e.g. TI C2000). See the thread-safety note below. |
+
+When building with Meson, prefer the `-Datomicity_mode={c11,volatile}` option, which
+defines the matching macro for you. Selecting an unsupported mode is a hard `#error`.
 
 ### Defensive behaviour
 
@@ -308,4 +313,4 @@ without crashing. `debounce_update()` also returns `false` safely when `trip == 
 | Sticky latch and disable | `debounce_disable()` intentionally preserves the sticky latch. This prevents a disable/enable cycle from silently discarding a fault record. Call `debounce_clear_latch()` explicitly when acknowledgement is appropriate. |
 | Re-arm after disable | `debounce_disable()` clears `counter`, `fall_counter`, `output`, and `prev_output`, so calling `debounce_enable()` afterwards gives a clean starting state without requiring a separate `debounce_reset()`. |
 | MISRA deviations | Rule 15.5 (advisory): each function has a single point of exit via a `result` variable. This is the only documented deviation. |
-| Thread safety | The library provides no synchronisation. If a `struct debounce` is shared across contexts (e.g. ISR and task), the caller is responsible for appropriate access protection. |
+| Thread safety | The atomicity modes make *individual* field accesses well-defined; they do **not** make `debounce_update()` atomic as a whole. The supported contract is **single-writer / many-readers**: one context may call the mutating functions on an object while any number of contexts call the single-field read-only queries (`debounce_is_active()`, `debounce_is_latched()`, `debounce_get_*()`). The edge queries `debounce_rose()`/`debounce_fell()` are writer-context only — see the concurrency section in `debounce.h`. Two contexts that both mutate the same object must be serialised by the caller (mutex / interrupt disable). The `c11` mode is race-free for this contract on multi-core hosts (verified under ThreadSanitizer); `volatile` is correct only on single-core targets and ThreadSanitizer will report races for it on a multi-core host. See the concurrency section in `debounce.h`. |

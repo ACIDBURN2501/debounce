@@ -1,3 +1,5 @@
+thread_dep = dependency('threads')
+
 test_exe = executable(
   'test_debounce',
   files('test_debounce.c'),
@@ -16,3 +18,22 @@ test_callbacks_exe = executable(
 )
 
 test('debounce callbacks', test_callbacks_exe)
+
+# The concurrency test is the one that exercises shared-state access from two
+# threads, so it is the meaningful place to run ThreadSanitizer.  TSAN is opt-in
+# (-Dtsan=true) because it requires libtsan and is x86/host-only; the C2000
+# target never builds the test suite.
+concurrency_override = []
+if get_option('tsan')
+  concurrency_override = ['b_sanitize=thread']
+endif
+
+test_concurrency_exe = executable(
+  'test_debounce_concurrency',
+  files('test_debounce_concurrency.c'),
+  dependencies: [debounce_dep, thread_dep],
+  include_directories: [public_headers, generated_headers],
+  override_options: concurrency_override,
+)
+
+test('debounce concurrency', test_concurrency_exe)

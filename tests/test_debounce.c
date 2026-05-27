@@ -22,7 +22,7 @@
         static void name(void);                                                \
         static void name(void)
 
-/* ── debounce_init ───────────────────────────────────────────────────────── */
+/* ================== debounce_init ======================================= */
 
 /* Init returns true, sets trip, enables, and zeroes all other fields */
 TEST_CASE(test_init_sets_trip_and_defaults)
@@ -63,7 +63,7 @@ TEST_CASE(test_init_zero_trip_returns_false)
         TEST_ASSERT(db.counter == 99u); /* unchanged */
 }
 
-/* ── debounce_update ─────────────────────────────────────────────────────── */
+/* ================== debounce_update ====================================== */
 
 /* Counter increments on each asserted tick; output is false before trip */
 TEST_CASE(test_update_counter_increments_before_trip)
@@ -231,7 +231,7 @@ TEST_CASE(test_update_noop_when_disabled)
         TEST_ASSERT(db.output == false);
 }
 
-/* ── sticky latch behaviour ──────────────────────────────────────────────── */
+/* ================== sticky latch behaviour =============================== */
 
 /* Latch is set when output first goes true and stays set after deassert */
 TEST_CASE(test_latch_set_on_output_and_persists_after_deassert)
@@ -288,7 +288,7 @@ TEST_CASE(test_clear_latch_null_db)
         debounce_clear_latch(NULL); /* Must not crash */
 }
 
-/* ── debounce_reset ──────────────────────────────────────────────────────── */
+/* ================== debounce_reset ======================================= */
 
 /* Reset clears counter, output, latch; preserves trip and enabled */
 TEST_CASE(test_reset_clears_debounce_state_preserves_config)
@@ -317,7 +317,7 @@ TEST_CASE(test_reset_null_db)
         debounce_reset(NULL); /* Must not crash */
 }
 
-/* ── debounce_enable / debounce_disable / debounce_is_enabled ────────────── */
+/* ================== debounce_enable/disable/is_enabled ================== */
 
 /* enable sets enabled without modifying other state */
 TEST_CASE(test_enable_sets_enabled_only)
@@ -389,7 +389,7 @@ TEST_CASE(test_disable_then_enable_gives_clean_state)
         TEST_ASSERT(db.counter == 1u);
 }
 
-/* ── debounce_is_active / debounce_get_counter / debounce_get_trip ───────── */
+/* ================== debounce_is_active/get_counter/get_trip ============= */
 
 /* is_active returns the output field; NULL returns false */
 TEST_CASE(test_is_active_reflects_output)
@@ -431,7 +431,7 @@ TEST_CASE(test_get_trip_returns_trip)
         TEST_ASSERT(debounce_get_trip(NULL) == 0u);
 }
 
-/* ── robustness & edge-case tests ───────────────────────────────────────── */
+/* ================== robustness & edge-case tests ========================= */
 
 /* Rapid toggling (true/false alternation) faster than trip must never assert */
 TEST_CASE(test_update_rapid_toggling_never_asserts)
@@ -621,7 +621,7 @@ TEST_CASE(test_update_trip_two_boundary)
         TEST_ASSERT(db.output == true);
 }
 
-/* ── auto-arm composition pattern ───────────────────────────────────────── */
+/* ================== auto-arm composition pattern ======================== */
 
 /*
  * Demonstrate the two-debouncer auto-arm pattern described in the header.
@@ -676,7 +676,7 @@ TEST_CASE(test_composition_autoarm_pattern)
         }
 }
 
-/* ── debounce_set_trip (runtime trip reconfiguration) ───────────────────── */
+/* ================== debounce_set_trip =================================== */
 
 /* Basic set_trip: changes trip, resets counter/output, preserves latch */
 TEST_CASE(test_set_trip_basic)
@@ -715,8 +715,8 @@ TEST_CASE(test_set_trip_zero_returns_false)
 
         bool ok = debounce_set_trip(&db, 0u);
         TEST_ASSERT(ok == false);
-        TEST_ASSERT(db.trip == 5u);     /* unchanged */
-        TEST_ASSERT(db.counter == 1u);  /* unchanged */
+        TEST_ASSERT(db.trip == 5u);    /* unchanged */
+        TEST_ASSERT(db.counter == 1u); /* unchanged */
 }
 
 /* Lowering trip below current counter resets counter safely */
@@ -781,7 +781,7 @@ TEST_CASE(test_set_trip_while_disabled)
         TEST_ASSERT(db.enabled == false); /* preserved */
 }
 
-/* ── symmetric (two-sided) debounce ─────────────────────────────────────── */
+/* ================== symmetric (two-sided) debounce ====================== */
 
 /* init_symmetric sets both thresholds correctly */
 TEST_CASE(test_symmetric_init)
@@ -985,7 +985,7 @@ TEST_CASE(test_symmetric_trip_one_fall_one)
         TEST_ASSERT(db.output == false);
 }
 
-/* ── edge detection (debounce_rose / debounce_fell) ─────────────────────── */
+/* ================== edge detection ======================================= */
 
 /* rose returns true for exactly one tick on assertion */
 TEST_CASE(test_rose_on_assertion)
@@ -1131,7 +1131,7 @@ TEST_CASE(test_no_edges_while_disabled)
         TEST_ASSERT(debounce_fell(&db) == false);
 }
 
-/* ── runner ──────────────────────────────────────────────────────────────── */
+/* ================== runner ============================================== */
 
 static void
 run_test(void (*test_func)(void), const char *name)
@@ -1204,8 +1204,7 @@ main(void)
 
         run_test(test_update_rapid_toggling_never_asserts,
                  "test_update_rapid_toggling_never_asserts");
-        run_test(test_reinit_on_live_object,
-                 "test_reinit_on_live_object");
+        run_test(test_reinit_on_live_object, "test_reinit_on_live_object");
         run_test(test_double_disable_is_idempotent,
                  "test_double_disable_is_idempotent");
         run_test(test_double_enable_is_idempotent,
@@ -1233,12 +1232,10 @@ main(void)
                  "test_set_trip_zero_returns_false");
         run_test(test_set_trip_lower_than_current_counter,
                  "test_set_trip_lower_than_current_counter");
-        run_test(test_set_trip_while_active,
-                 "test_set_trip_while_active");
+        run_test(test_set_trip_while_active, "test_set_trip_while_active");
         run_test(test_set_trip_then_count_to_new_trip,
                  "test_set_trip_then_count_to_new_trip");
-        run_test(test_set_trip_while_disabled,
-                 "test_set_trip_while_disabled");
+        run_test(test_set_trip_while_disabled, "test_set_trip_while_disabled");
 
         /* symmetric debounce */
         run_test(test_symmetric_init, "test_symmetric_init");
@@ -1257,8 +1254,7 @@ main(void)
                  "test_symmetric_reset_clears_fall_counter");
         run_test(test_symmetric_set_fall_trip_runtime,
                  "test_symmetric_set_fall_trip_runtime");
-        run_test(test_set_fall_trip_null_db,
-                 "test_set_fall_trip_null_db");
+        run_test(test_set_fall_trip_null_db, "test_set_fall_trip_null_db");
         run_test(test_get_fall_trip_returns_value,
                  "test_get_fall_trip_returns_value");
         run_test(test_symmetric_output_not_asserted_fall_noop,
@@ -1276,16 +1272,12 @@ main(void)
                  "test_rose_not_during_counting");
         run_test(test_fell_with_symmetric_debounce,
                  "test_fell_with_symmetric_debounce");
-        run_test(test_rose_fell_after_reset,
-                 "test_rose_fell_after_reset");
+        run_test(test_rose_fell_after_reset, "test_rose_fell_after_reset");
         run_test(test_rose_fell_after_disable_enable,
                  "test_rose_fell_after_disable_enable");
-        run_test(test_rose_single_tick_only,
-                 "test_rose_single_tick_only");
-        run_test(test_fell_single_tick_only,
-                 "test_fell_single_tick_only");
-        run_test(test_no_edges_while_disabled,
-                 "test_no_edges_while_disabled");
+        run_test(test_rose_single_tick_only, "test_rose_single_tick_only");
+        run_test(test_fell_single_tick_only, "test_fell_single_tick_only");
+        run_test(test_no_edges_while_disabled, "test_no_edges_while_disabled");
 
         fprintf(stdout, "\n=== All tests passed ===\n\n");
         return EXIT_SUCCESS;

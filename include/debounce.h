@@ -11,15 +11,51 @@
  *    it incurs zero function-call overhead after optimisation, and so that no
  *    separate link step is required by consumers.
  *
- *    MISRA C 2012 awareness
+ *    MISRA C 2023 awareness
  *    ----------------------
- *    The implementation targets MISRA C 2012.  The following advisory
- *    deviations are documented here:
+ *    The implementation is written with MISRA C 2023 in mind (not formally
+ *    certified).  The one intentional, repository-wide advisory deviation is
+ *    Rule 15.5 (single point of exit): every function returns once, via a
+ *    `result` variable set by guard clauses.  Individual @note tags below
+ *    cite the specific rules they address (e.g. 13.4, 17.7).
  *
- *      Rule 15.5 (advisory):  Each function has a single point of exit
- *        (the final `return` statement).  Guard clauses at the top of each
- *        function use a local `result` variable to carry the default value
- *        rather than issuing an early return.
+ *    Concurrency model and threading contract
+ *    ----------------------------------------
+ *    IMPORTANT: the atomicity modes make each *individual* field access
+ *    well-defined; they do NOT make debounce_update() atomic as a whole.
+ *    The supported contract is therefore:
+ *
+ *      - SINGLE WRITER: exactly one context (one ISR, one task, or one
+ *        control loop) may call the mutating functions (debounce_update(),
+ *        debounce_reset(), debounce_enable/disable(), debounce_set_*(),
+ *        debounce_clear_latch()) on a given object.
+ *      - MANY READERS: any number of other contexts may concurrently call
+ *        the single-field query functions (debounce_is_active(),
+ *        debounce_is_latched(), debounce_get_counter(), debounce_get_trip(),
+ *        debounce_get_fall_trip()).
+ *
+ *    Two contexts that both *mutate* the same object must be serialised by
+ *    the caller (e.g. a mutex or interrupt disable); no mode protects that.
+ *
+ *    Edge queries are writer-context only: debounce_rose() and
+ *    debounce_fell() compare two fields (output and prev_output).  Each load
+ *    is race-free, but a *concurrent* reader may observe them mid-update and
+ *    see a spurious or missed edge.  Call them from the same context as
+ *    debounce_update() (typically right after it), not from a reader thread.
+ *
+ *    The mode is selected via `DEBOUNCE_ATOMIC_MODE`:
+ *
+ *    - `DEBOUNCE_ATOMIC_MODE_C11`: standard C11 `<stdatomic.h>`.  Reads and
+ *      writes are seq_cst atomics, so the single-writer/many-readers
+ *      contract is race-free on multi-core hosts/RTOSes (verified clean
+ *      under ThreadSanitizer).  Note seq_cst access is not free; it may emit
+ *      fences or locked instructions.
+ *    - `DEBOUNCE_ATOMIC_MODE_VOLATILE`: `volatile` only.  This is NOT a
+ *      memory-model synchronisation primitive and ThreadSanitizer will (and
+ *      should) report races for it on a multi-core host.  It is correct only
+ *      on a SINGLE-CORE target where a naturally-aligned word access is a
+ *      single, indivisible instruction — the intended case for MCUs such as
+ *      the TI C2000, whose toolchain ships no `<stdatomic.h>`.
  *
  *    IEC 61508 awareness
  *    -------------------
@@ -104,6 +140,16 @@ extern "C" {
 
 #include "debounce_conf.h"
 
+#if DEBOUNCE_ATOMIC_MODE == DEBOUNCE_ATOMIC_MODE_C11
+#include <stdatomic.h>
+#define DB_ATOMIC(type) _Atomic type
+#elif DEBOUNCE_ATOMIC_MODE == DEBOUNCE_ATOMIC_MODE_VOLATILE
+#define DB_ATOMIC(type) volatile type
+#else
+#error "Unsupported DEBOUNCE_ATOMIC_MODE; select C11 or VOLATILE"
+#endif
+
+#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -183,13 +229,13 @@ typedef void (*debounce_callback_t)(struct debounce *db, bool rose);
  */
 struct debounce {
         uint16_t trip;
-        uint16_t counter;
+        DB_ATOMIC(uint16_t) counter;
         uint16_t fall_trip;
-        uint16_t fall_counter;
-        bool     output;
-        bool     latch;
-        bool     enabled;
-        bool     prev_output;
+        DB_ATOMIC(uint16_t) fall_counter;
+        DB_ATOMIC(bool) output;
+        DB_ATOMIC(bool) latch;
+        DB_ATOMIC(bool) enabled;
+        DB_ATOMIC(bool) prev_output;
 #if DEBOUNCE_ENABLE_CALLBACKS
         debounce_callback_t callback;
 #endif
@@ -221,7 +267,7 @@ struct debounce {
  *        object.  If a disabled-at-start behaviour is required, follow
  *        with debounce_disable().
  *
- * @note  MISRA C 2012 Rule 17.7 — the return value shall be used by the
+ * @note  MISRA C 2023 Rule 17.7 — the return value shall be used by the
  *        caller.  On safety-critical targets, a false return should be
  *        treated as a configuration fault.
  */
@@ -231,14 +277,14 @@ debounce_init(struct debounce *db, uint16_t trip)
         bool result = false;
 
         if ((db != NULL) && (trip != 0u)) {
-                db->trip         = trip;
-                db->counter      = 0u;
-                db->fall_trip    = 0u;
+                db->trip = trip;
+                db->counter = 0u;
+                db->fall_trip = 0u;
                 db->fall_counter = 0u;
-                db->output       = false;
-                db->latch        = false;
-                db->enabled      = true;
-                db->prev_output  = false;
+                db->output = false;
+                db->latch = false;
+                db->enabled = true;
+                db->prev_output = false;
 #if DEBOUNCE_ENABLE_CALLBACKS
                 db->callback = NULL;
 #endif
@@ -268,11 +314,11 @@ static inline void
 debounce_reset(struct debounce *db)
 {
         if (db != NULL) {
-                db->counter      = 0u;
+                db->counter = 0u;
                 db->fall_counter = 0u;
-                db->output       = false;
-                db->latch        = false;
-                db->prev_output  = false;
+                db->output = false;
+                db->latch = false;
+                db->prev_output = false;
         }
 }
 
@@ -314,7 +360,7 @@ debounce_reset(struct debounce *db)
  *        are modified and false is returned.  Call debounce_disable() to
  *        put the object into a known clean state before disabling.
  *
- * @note  MISRA C 2012 Rule 13.4 — The result of the counter increment is
+ * @note  MISRA C 2023 Rule 13.4 — The result of the counter increment is
  *        not used directly in a comparison; the increment and comparison
  *        are separate statements.
  */
@@ -333,19 +379,19 @@ debounce_update(struct debounce *db, bool cond)
                         }
                         if (db->counter >= db->trip) {
                                 db->output = true;
-                                db->latch  = true;
+                                db->latch = true;
                         }
                 } else {
                         db->counter = 0u;
                         if (db->fall_trip == 0u) {
-                                db->output       = false;
+                                db->output = false;
                                 db->fall_counter = 0u;
                         } else if (db->output) {
                                 if (db->fall_counter < db->fall_trip) {
                                         db->fall_counter++;
                                 }
                                 if (db->fall_counter >= db->fall_trip) {
-                                        db->output       = false;
+                                        db->output = false;
                                         db->fall_counter = 0u;
                                 }
                         } else {
@@ -552,11 +598,11 @@ static inline void
 debounce_disable(struct debounce *db)
 {
         if (db != NULL) {
-                db->enabled      = false;
-                db->counter      = 0u;
+                db->enabled = false;
+                db->counter = 0u;
                 db->fall_counter = 0u;
-                db->output       = false;
-                db->prev_output  = false;
+                db->output = false;
+                db->prev_output = false;
         }
 }
 
@@ -584,7 +630,7 @@ debounce_is_enabled(const struct debounce *db)
         return result;
 }
 
-/* ── symmetric (two-sided) debounce ──────────────────────────────────────── */
+/* ================== symmetric (two-sided) debounce ======================== */
 
 /**
  * @brief Initialise a debounce object with separate rise and fall thresholds.
@@ -610,7 +656,7 @@ debounce_is_enabled(const struct debounce *db)
  *
  * @note  Equivalent to debounce_init() when @p fall_trip is zero.
  *
- * @note  MISRA C 2012 Rule 17.7 — the return value shall be used by the
+ * @note  MISRA C 2023 Rule 17.7 — the return value shall be used by the
  *        caller.  On safety-critical targets, a false return should be
  *        treated as a configuration fault.
  */
@@ -621,14 +667,14 @@ debounce_init_symmetric(struct debounce *db, uint16_t rise_trip,
         bool result = false;
 
         if ((db != NULL) && (rise_trip != 0u)) {
-                db->trip         = rise_trip;
-                db->counter      = 0u;
-                db->fall_trip    = fall_trip;
+                db->trip = rise_trip;
+                db->counter = 0u;
+                db->fall_trip = fall_trip;
                 db->fall_counter = 0u;
-                db->output       = false;
-                db->latch        = false;
-                db->enabled      = true;
-                db->prev_output  = false;
+                db->output = false;
+                db->latch = false;
+                db->enabled = true;
+                db->prev_output = false;
 #if DEBOUNCE_ENABLE_CALLBACKS
                 db->callback = NULL;
 #endif
@@ -660,9 +706,9 @@ debounce_set_fall_trip(struct debounce *db, uint16_t fall_trip)
         bool result = false;
 
         if (db != NULL) {
-                db->fall_trip    = fall_trip;
+                db->fall_trip = fall_trip;
                 db->fall_counter = 0u;
-                result           = true;
+                result = true;
         }
 
         return result;
@@ -693,7 +739,7 @@ debounce_get_fall_trip(const struct debounce *db)
         return result;
 }
 
-/* ── runtime trip reconfiguration ───────────────────────────────────────── */
+/* ================== runtime trip reconfiguration ========================== */
 
 /**
  * @brief Change the assertion trip threshold at runtime.
@@ -725,16 +771,16 @@ debounce_set_trip(struct debounce *db, uint16_t trip)
         bool result = false;
 
         if ((db != NULL) && (trip != 0u)) {
-                db->trip    = trip;
+                db->trip = trip;
                 db->counter = 0u;
-                db->output  = false;
-                result      = true;
+                db->output = false;
+                result = true;
         }
 
         return result;
 }
 
-/* ── edge detection ─────────────────────────────────────────────────────── */
+/* ========================== edge detection =============================== */
 
 /**
  * @brief Query whether a rising edge occurred on the last update.
@@ -790,7 +836,7 @@ debounce_fell(const struct debounce *db)
         return result;
 }
 
-/* ── transition callback ────────────────────────────────────────────────── */
+/* ====================== transition callback ============================== */
 
 #if DEBOUNCE_ENABLE_CALLBACKS
 /**
@@ -823,5 +869,10 @@ debounce_set_callback(struct debounce *db, debounce_callback_t cb)
 #ifdef __cplusplus
 }
 #endif
+
+_Static_assert((sizeof(uint16_t) * CHAR_BIT) >= 16,
+               "uint16_t must hold at least 16 bits");
+_Static_assert(sizeof(struct debounce) <= 64,
+               "debounce struct exceeds reasonable size");
 
 #endif /* DEBOUNCE_H_ */

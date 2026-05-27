@@ -22,6 +22,18 @@ conf.set('MAJOR', major)
 conf.set('MINOR', minor)
 conf.set('PATCH', patch)
 
+# Apply project options as compiler arguments
+atomicity = get_option('atomicity_mode')
+if atomicity == 'c11'
+  add_project_arguments('-DDEBOUNCE_USE_C11_ATOMIC', language: 'c')
+elif atomicity == 'volatile'
+  add_project_arguments('-DDEBOUNCE_USE_VOLATILE_ATOMIC', language: 'c')
+endif
+
+if get_option('enable_callbacks')
+  add_project_arguments('-DDEBOUNCE_ENABLE_CALLBACKS=1', language: 'c')
+endif
+
 generated_version_header = configure_file(
   input: 'config' / 'debounce_version.h.in',
   output: 'debounce_version.h',

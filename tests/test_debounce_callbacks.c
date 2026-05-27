@@ -26,7 +26,7 @@
         static void name(void);                                                \
         static void name(void)
 
-/* ── shared callback state ──────────────────────────────────────────────── */
+/* ================== shared callback state =============================== */
 
 static int g_rise_count;
 static int g_fall_count;
@@ -37,7 +37,7 @@ reset_cb_state(void)
 {
         g_rise_count = 0;
         g_fall_count = 0;
-        g_last_db    = NULL;
+        g_last_db = NULL;
 }
 
 static void
@@ -51,7 +51,7 @@ test_callback(struct debounce *db, bool rose)
         }
 }
 
-/* ── tests ──────────────────────────────────────────────────────────────── */
+/* ================== tests =============================================== */
 
 /* Callback fires on rising edge */
 TEST_CASE(test_callback_fires_on_rising_edge)
@@ -194,7 +194,7 @@ TEST_CASE(test_callback_not_fired_when_disabled)
         TEST_ASSERT(g_fall_count == 0);
 }
 
-/* ── runner ──────────────────────────────────────────────────────────────── */
+/* ================== runner ============================================== */
 
 static void
 run_test(void (*test_func)(void), const char *name)
@@ -214,12 +214,9 @@ main(void)
                  "test_callback_fires_on_falling_edge");
         run_test(test_callback_not_fired_while_steady,
                  "test_callback_not_fired_while_steady");
-        run_test(test_callback_null_is_safe,
-                 "test_callback_null_is_safe");
-        run_test(test_callback_set_and_clear,
-                 "test_callback_set_and_clear");
-        run_test(test_callback_survives_reset,
-                 "test_callback_survives_reset");
+        run_test(test_callback_null_is_safe, "test_callback_null_is_safe");
+        run_test(test_callback_set_and_clear, "test_callback_set_and_clear");
+        run_test(test_callback_survives_reset, "test_callback_survives_reset");
         run_test(test_callback_with_symmetric_debounce,
                  "test_callback_with_symmetric_debounce");
         run_test(test_callback_not_fired_when_disabled,

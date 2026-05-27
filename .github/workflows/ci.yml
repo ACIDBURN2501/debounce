@@ -55,6 +55,33 @@ jobs:
       - name: Test
         run: meson test -C build --verbose
 
+  tsan:
+    name: ThreadSanitizer (concurrency, c11)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Meson and Ninja
+        run: python -m pip install --upgrade meson ninja
+
+      # -Dtsan=true builds the concurrency test under ThreadSanitizer; the
+      # default atomicity_mode=c11 must be race-free (TSAN-clean) here.
+      # TSAN is incompatible with ASan, so this is a separate job with no
+      # global -Db_sanitize.
+      - name: Configure (debug + tests + tsan)
+        run: meson setup build-tsan --buildtype=debug -Dbuild_tests=true -Dtsan=true
+
+      - name: Build
+        run: meson compile -C build-tsan
+
+      - name: Test (ThreadSanitizer)
+        run: meson test -C build-tsan --verbose --print-errorlogs
+
   release-build:
     name: Release build
     runs-on: ubuntu-latest
