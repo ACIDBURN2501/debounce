@@ -50,7 +50,7 @@ meson test -C build --verbose
 
 - Match the conventions in the existing files.
 - Keep public headers minimal and stable.
-- Prefer explicit fixed-width integer types when ABI or serialization matters.
+- Prefer explicit fixed-width integer types when ABI or serialisation matters.
 
 ### Testing
 

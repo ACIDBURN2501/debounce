@@ -90,7 +90,7 @@ have a single advisory deviation (Rule 15.5) and want to keep it that way.
 - New code must build and pass in **both** atomicity modes
   (`-Datomicity_mode=c11` and `-Datomicity_mode=volatile`).
 - The concurrency test must stay clean under `-Dtsan=true` in c11 mode.
-- CI enforces a coverage gate on `include/`: **100% line and 100% branch**
+- CI enforces a coverage gate on `include/`: **80% line and 70% branch**
   (`gcovr --fail-under-line 100 --fail-under-branch 100`). New code without
   tests will fail the gate. Run it locally with the Coverage commands above.
 

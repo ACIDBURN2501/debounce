@@ -1,6 +1,10 @@
-/*
- * @file debounce.h
- * @brief Public API for a generic saturating-counter debounce primitive.
+/**
+ * SPDX-License-Identifier: MIT
+ *
+ * @file: debounce.h
+ *
+ * @brief
+ *    Public API for a generic saturating-counter debounce primitive.
  *
  * @details
  *    Provides a deterministic, allocation-free debounce primitive suitable
