@@ -19,7 +19,7 @@ Generic saturating counter debounce primitive.
 - **MISRA C 2023 aware** : Single exit points per function, increment separated from comparison, and the single advisory deviation (Rule 15.5) documented inline — written with safety-conscious, IEC-61508-style environments in mind (not formally certified).
 - **Header-only implementation** : All functions are `static inline`; no separate link step required.
 
-## Using the Library
+## Installation
 
 ### As a Meson subproject
 
@@ -49,19 +49,6 @@ also discover the package as `debounce`.
 
 The generated version header is available as `debounce_version.h` in the
 build tree and as `<debounce/debounce_version.h>` after install.
-
-## Building
-
-```sh
-# Library only (release)
-meson setup build --buildtype=release -Dbuild_tests=false
-meson compile -C build
-
-# With unit tests
-meson setup build --buildtype=debug -Dbuild_tests=true
-meson compile -C build
-meson test -C build --verbose
-```
 
 ## Quick Start
 
@@ -100,6 +87,19 @@ void operator_acknowledge(void)
     /* Explicitly clear the sticky latch on operator action. */
     debounce_clear_latch(&pressure_fault);
 }
+```
+
+## Building
+
+```sh
+# Library only (release)
+meson setup build --buildtype=release -Dbuild_tests=false
+meson compile -C build
+
+# With unit tests
+meson setup build --buildtype=debug -Dbuild_tests=true
+meson compile -C build
+meson test -C build --verbose
 ```
 
 ## Output model

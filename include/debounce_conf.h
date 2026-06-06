@@ -1,6 +1,10 @@
-/*
- * @file debounce_conf.h
- * @brief Compile-time configuration for the debounce library.
+/**
+ * SPDX-License-Identifier: MIT
+ *
+ * @file: debounce_conf.h
+ *
+ * @brief
+ *    Compile-time configuration for the debounce library.
  *
  * @details
  *    Users may override any option below by defining the macro before
